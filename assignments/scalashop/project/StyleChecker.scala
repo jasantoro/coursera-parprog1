@@ -1,42 +1,16 @@
-import java.io.{ByteArrayOutputStream, PrintStream}
-
-import com.typesafe.config.ConfigFactory
-import org.scalastyle._
 import sbt.File
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
+import org.scalastyle._
+import com.typesafe.config.ConfigFactory
 
 object StyleChecker {
   val maxResult = 100
-
-  def assess(sources: Seq[File], styleSheetPath: String): (String, Int) = {
-    val configFile = new File(styleSheetPath).getAbsolutePath
-
-    val messages = new ScalastyleChecker().checkFiles(
-      ScalastyleConfiguration.readFromXml(configFile),
-      Directory.getFiles(None, sources))
-
-    val output = new ByteArrayOutputStream()
-    val outputResult = new CustomTextOutput(new PrintStream(output)).output(messages)
-
-    val msg =
-      s"""${output.toString}
-         |Processed ${outputResult.files}  file(s)
-         |Found ${outputResult.errors} errors
-         |Found ${outputResult.warnings} warnings
-         |""".stripMargin
-
-    (msg, score(outputResult))
-  }
-
-  def score(outputResult: OutputResult) = {
-    val penalties = outputResult.errors + outputResult.warnings
-    scala.math.max(maxResult - penalties, 0)
-  }
 
   class CustomTextOutput[T <: FileSpec](stream: PrintStream) extends Output[T] {
     private val messageHelper = new MessageHelper(ConfigFactory.load())
 
     var fileCount: Int = _
-
     override def message(m: Message[T]): Unit = m match {
       case StartWork() =>
       case EndWork() =>
@@ -66,5 +40,29 @@ object StyleChecker {
       })
       case None => ""
     }
+  }
+
+  def score(outputResult: OutputResult) = {
+    val penalties = outputResult.errors + outputResult.warnings
+    scala.math.max(maxResult - penalties, 0)
+  }
+
+  def assess(sources: Seq[File], styleSheetPath: String): (String, Int) = {
+    val configFile = new File(styleSheetPath).getAbsolutePath
+
+    val messages = new ScalastyleChecker().checkFiles(
+      ScalastyleConfiguration.readFromXml(configFile),
+      Directory.getFiles(None, sources))
+
+    val output = new ByteArrayOutputStream()
+    val outputResult = new CustomTextOutput(new PrintStream(output)).output(messages)
+
+    val msg = s"""${output.toString}
+                 |Processed ${outputResult.files}  file(s)
+                 |Found ${outputResult.errors} errors
+                 |Found ${outputResult.warnings} warnings
+                 |""".stripMargin
+
+    (msg, score(outputResult))
   }
 }

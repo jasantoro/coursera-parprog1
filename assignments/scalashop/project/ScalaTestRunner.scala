@@ -1,55 +1,75 @@
-import java.util.concurrent._
-
-import sbt.Keys._
 import sbt._
-
-import scala.collection.mutable.ListBuffer
+import Keys._
+import sys.process.{Process => SysProc, ProcessLogger}
+import java.util.concurrent._
+import collection.mutable.ListBuffer
 import scala.pickling.Defaults._
 import scala.pickling.json._
-import scala.sys.process.{ProcessLogger, Process => SysProc}
 
 final case class GradingSummary(score: Int, maxScore: Int, feedback: String)
 
 object ScalaTestRunner {
 
-  def scalaTestGrade(gradingReporter: GradingFeedback, classpath: Classpath, testClasses: File, outfile: File,
-                     resourceFiles: List[File], gradeOptions: Map[String, String], instragentPath: String): Unit = {
+  class LimitedStringBuffer {
+    val buf = new ListBuffer[String]()
+    private var lines = 0
+    private var lengthCropped = false
 
-    val (score, maxScore, feedback, runLog) =
-      runScalaTest(classpath, testClasses, outfile, resourceFiles, gradeOptions, gradingReporter.testExecutionFailed, instragentPath)
+    override def toString = buf.mkString("\n").trim
 
-    if (score == maxScore) {
-      gradingReporter.allTestsPassed()
-    } else {
-      val scaledScore = gradingReporter.maxTestScore * score / maxScore
-      gradingReporter.testsFailed(feedback + testEnv(gradeOptions), scaledScore)
-    }
+    def append(s: String) =
+      if (lines < Settings.maxOutputLines) {
+        val shortS =
+          if (s.length > Settings.maxOutputLineLength) {
+            if (!lengthCropped) {
+              val msg =
+                """WARNING: OUTPUT LINES CROPPED
+                  |Your program generates very long lines on the standard (or error) output. Some of
+                  |the lines have been cropped.
+                  |This should not have an impact on your grade or the grading process; however it is
+                  |bad style to leave `print` statements in production code, so consider removing and
+                  |replacing them by proper tests.
+                  | """.stripMargin
+              buf.prepend(msg)
+              lengthCropped = true
+            }
+            s.substring(0, Settings.maxOutputLineLength)
+          } else s
+        buf.append(shortS)
+        lines += 1
+      } else if (lines == Settings.maxOutputLines) {
+        val msg =
+          """WARNING: PROGRAM OUTPUT TOO LONG
+            |Your program generates massive amounts of data on the standard (or error) output.
+            |You are probably using `print` statements to debug your code.
+            |This should not have an impact on your grade or the grading process; however it is
+            |bad style to leave `print` statements in production code, so consider removing and
+            |replacing them by proper tests.
+            | """.stripMargin
+        buf.prepend(msg)
+        lines += 1
+      }
+  }
 
-    if (!runLog.isEmpty) {
-      gradingReporter.testExecutionDebugLog(runLog)
+  private def forkProcess(proc: SysProc, timeout: Int): Unit = {
+    val executor = Executors.newSingleThreadExecutor()
+    val future: Future[Unit] = executor.submit(new Callable[Unit] {
+      def call {
+        proc.exitValue()
+      }
+    })
+    try {
+      future.get(timeout, TimeUnit.SECONDS)
+    } catch {
+      case to: TimeoutException =>
+        future.cancel(true)
+        throw to
+    } finally {
+      executor.shutdown()
     }
   }
 
-  def runScalaTest(classpath: Classpath, testClasses: File, outfile: File,
-                   resourceFiles: List[File], gradeOptions: Map[String, String],
-                   logError: String => Unit, instragentPath: String) = {
-
-    // invoke scalatest in the separate process
-    val classpathString = classpath map { case Attributed(file) => file.getAbsolutePath } mkString ":"
-    val cmd = scalaTestCommand(testClasses, outfile, resourceFiles, gradeOptions, classpathString, instragentPath)
-
-    val timeout = gradeOptions.getOrElse("totalTimeout", Settings.scalaTestTimeout.toString).toInt
-    val runLog = invokeScalaTestInSeparateProcess(cmd, logError, timeout)
-
-    // compute the summary
-    val summaryFilePath = computeSummary(outfile.getAbsolutePath, classpathString, logError)
-    val summary = unpickleSummary(logError, runLog, summaryFilePath)
-
-    // cleanup all the files
-    IO.delete(new File(summaryFilePath) :: outfile :: Nil)
-
-    (summary.score, summary.maxScore, summary.feedback, runLog)
-  }
+  private def runPathString(file: File) = file.getAbsolutePath.replace(" ", "\\ ")
 
   private def invokeScalaTestInSeparateProcess(scalaTestCommand: List[String], logError: String => Unit, timeout: Int): String = {
     val out = new LimitedStringBuffer()
@@ -75,24 +95,6 @@ object ScalaTestRunner {
     }
 
     out.toString
-  }
-
-  private def forkProcess(proc: SysProc, timeout: Int): Unit = {
-    val executor = Executors.newSingleThreadExecutor()
-    val future: Future[Unit] = executor.submit(new Callable[Unit] {
-      def call {
-        proc.exitValue()
-      }
-    })
-    try {
-      future.get(timeout, TimeUnit.SECONDS)
-    } catch {
-      case to: TimeoutException =>
-        future.cancel(true)
-        throw to
-    } finally {
-      executor.shutdown()
-    }
   }
 
   private def computeSummary(outFilePath: String, classpathString: String, logError: String => Unit): String = {
@@ -121,6 +123,27 @@ object ScalaTestRunner {
     //   "suiteId": "ParallelCountChangeSuite::50"
     // }
     summaryFilePath
+  }
+
+  def runScalaTest(classpath: Classpath, testClasses: File, outfile: File,
+                   resourceFiles: List[File], gradeOptions: Map[String, String],
+                   logError: String => Unit, instragentPath: String) = {
+
+    // invoke scalatest in the separate process
+    val classpathString = classpath map { case Attributed(file) => file.getAbsolutePath } mkString ":"
+    val cmd = scalaTestCommand(testClasses, outfile, resourceFiles, gradeOptions, classpathString, instragentPath)
+
+    val timeout = gradeOptions.getOrElse("totalTimeout", Settings.scalaTestTimeout.toString).toInt
+    val runLog = invokeScalaTestInSeparateProcess(cmd, logError, timeout)
+
+    // compute the summary
+    val summaryFilePath = computeSummary(outfile.getAbsolutePath, classpathString, logError)
+    val summary = unpickleSummary(logError, runLog, summaryFilePath)
+
+    // cleanup all the files
+    IO.delete(new File(summaryFilePath) :: outfile :: Nil)
+
+    (summary.score, summary.maxScore, summary.feedback, runLog)
   }
 
   private def unpickleSummary(logError: (String) => Unit, runLog: String, summaryFileStr: String): GradingSummary = {
@@ -169,56 +192,31 @@ object ScalaTestRunner {
       Nil
   }
 
-  private def runPathString(file: File) = file.getAbsolutePath.replace(" ", "\\ ")
-
   private def testEnv(options: Map[String, String]): String = {
     val memory = options.get("Xmx").getOrElse("256m")
     val timeout = options.get("totalTimeout").map(_.toInt).getOrElse(Settings.scalaTestTimeout)
     val timeoutPerTest = options.get("individualTimeout").map(_.toInt).getOrElse(Settings.individualTestTimeout)
 
     "======== TESTING ENVIRONMENT ========\n" +
-      s"Limits: memory: $memory,  total time: ${timeout}s,  per test case time: ${timeoutPerTest}s\n"
+    s"Limits: memory: $memory,  total time: ${timeout}s,  per test case time: ${timeoutPerTest}s\n"
   }
 
-  class LimitedStringBuffer {
-    val buf = new ListBuffer[String]()
-    private var lines = 0
-    private var lengthCropped = false
+  def scalaTestGrade(gradingReporter: GradingFeedback, classpath: Classpath, testClasses: File, outfile: File,
+                     resourceFiles: List[File], gradeOptions: Map[String, String], instragentPath: String): Unit = {
 
-    override def toString = buf.mkString("\n").trim
+    val (score, maxScore, feedback, runLog) =
+      runScalaTest(classpath, testClasses, outfile, resourceFiles, gradeOptions, gradingReporter.testExecutionFailed, instragentPath)
 
-    def append(s: String) =
-      if (lines < Settings.maxOutputLines) {
-        val shortS =
-          if (s.length > Settings.maxOutputLineLength) {
-            if (!lengthCropped) {
-              val msg =
-                """WARNING: OUTPUT LINES CROPPED
-                  |Your program generates very long lines on the standard (or error) output. Some of
-                  |the lines have been cropped.
-                  |This should not have an impact on your grade or the grading process; however it is
-                  |bad style to leave `print` statements in production code, so consider removing and
-                  |replacing them by proper tests.
-                  | """.stripMargin
-              buf.prepend(msg)
-              lengthCropped = true
-            }
-            s.substring(0, Settings.maxOutputLineLength)
-          } else s
-        buf.append(shortS)
-        lines += 1
-      } else if (lines == Settings.maxOutputLines) {
-        val msg =
-          """WARNING: PROGRAM OUTPUT TOO LONG
-            |Your program generates massive amounts of data on the standard (or error) output.
-            |You are probably using `print` statements to debug your code.
-            |This should not have an impact on your grade or the grading process; however it is
-            |bad style to leave `print` statements in production code, so consider removing and
-            |replacing them by proper tests.
-            | """.stripMargin
-        buf.prepend(msg)
-        lines += 1
-      }
+    if (score == maxScore) {
+      gradingReporter.allTestsPassed()
+    } else {
+      val scaledScore = gradingReporter.maxTestScore * score / maxScore
+      gradingReporter.testsFailed(feedback + testEnv(gradeOptions), scaledScore)
+    }
+
+    if (!runLog.isEmpty) {
+      gradingReporter.testExecutionDebugLog(runLog)
+    }
   }
 }
 

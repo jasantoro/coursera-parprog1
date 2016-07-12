@@ -7,8 +7,7 @@ object Settings {
   val testResultsFileName = "grading-results-log"
 
   // time in seconds that we give scalatest for running
-  val scalaTestTimeout = 850
-  // coursera has a 15 minute timeout anyhow
+  val scalaTestTimeout = 850 // coursera has a 15 minute timeout anyhow
   val individualTestTimeout = 240
 
   // default weight of each test in a GradingSuite, in case no weight is given
