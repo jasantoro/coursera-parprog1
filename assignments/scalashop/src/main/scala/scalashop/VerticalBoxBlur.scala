@@ -1,6 +1,7 @@
 package scalashop
 
 import org.scalameter._
+import common._
 
 object VerticalBoxBlurRunner {
 
@@ -42,12 +43,11 @@ object VerticalBoxBlur {
     * bottom.
     */
   def blur(src: Img, dst: Img, from: Int, end: Int, radius: Int): Unit = {
-    for (x <- from until end) {
-      for (y <- 0 until src.height) {
-        val rgba = boxBlurKernel(src, x, y, radius)
-        dst.update(x, y, rgba)
-      }
-    }
+    for {
+      x <- from until end
+      y <- 0 until src.height
+      if x >= 0 && x < src.width
+    } yield dst.update(x, y, boxBlurKernel(src, x, y, radius))
   }
 
   /** Blurs the columns of the source image in parallel using `numTasks` tasks.
@@ -57,8 +57,10 @@ object VerticalBoxBlur {
     * columns.
     */
   def parBlur(src: Img, dst: Img, numTasks: Int, radius: Int): Unit = {
-    // TODO implement using the `task` construct and the `blur` method
-    ???
+    val rowsPerTaks: Int = src.width / numTasks
+    (0 until src.width by rowsPerTaks).map(index => task {
+      blur(src, dst, index, index + rowsPerTaks, radius)
+    }).map(_.join())
   }
 
 }
