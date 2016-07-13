@@ -12,7 +12,8 @@ def getUniqueId(): Long = {
   uidCount = uidCount + 1
   uidCount
 }
-private val x = new AnyRef {}
+
+val x = new AnyRef {}
 def getUniqueIdSync(): Long = x.synchronized {
   uidCount = uidCount + 1
   uidCount
