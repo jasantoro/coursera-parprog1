@@ -112,7 +112,7 @@ def main(args: Array[String]) {
       Key.exec.maxWarmupRuns -> 60
       Key.verbose -> true
     } withWarmer (new Warmer.Default) setUp {
-      () => initialize(xs)
+      _ => initialize(xs)
     } measure {
       quickSort(xs, 0, xs.length)
     }
@@ -122,7 +122,7 @@ def main(args: Array[String]) {
     Key.exec.maxWarmupRuns -> 60
     Key.verbose -> true
   } withWarmer (new Warmer.Default) setUp {
-    () => initialize(xs)
+    _ => initialize(xs)
   } measure {
     parMergeSort(xs, maxDepth)
   }
