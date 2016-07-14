@@ -1,4 +1,4 @@
-import org.coursera.week1._
+import org.coursera._
 
 def power(a: Int, p: Double): Int = math.pow(a, p).toInt
 
@@ -19,7 +19,7 @@ def pNormTwoPart(a: Array[Int], p: Double): Int = {
 }
 
 def pNormPar(a: Array[Int], p: Double): Int = {
-  import org.coursera.week1._
+  import org.coursera._
   val m = a.length / 2
   val (sum1, sum2) = parallel(sumSegment(a, p, 0, m), sumSegment(a, p, m, a.length))
   power(sum1 + sum2, 1/p)

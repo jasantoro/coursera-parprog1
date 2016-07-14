@@ -13,7 +13,7 @@ def mcCount(iter: Int): Int = {
 }
 def monteCarloPISeq(iter: Int): Double = 4.0 * mcCount(iter) / iter
 def monteCarloPIPar(iter: Int): Double = {
-  import org.coursera.week1._
+  import org.coursera._
   val ((pi1, pi2), (pi3, pi4)) = parallel(
     parallel(mcCount(iter/4), mcCount(iter/4)),
     parallel(mcCount(iter/4), mcCount(iter - 3*iter/4))

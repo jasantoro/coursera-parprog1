@@ -1,10 +1,10 @@
-package org.coursera
+package org
 
 import java.util.concurrent._
 
 import scala.util.DynamicVariable
 
-package object week1 {
+package object coursera {
 
   val forkJoinPool = new ForkJoinPool
 
